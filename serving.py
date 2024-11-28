@@ -33,3 +33,18 @@ def send_promotional_message(
     """
     crud.send_sms(db, sms_data)
     return {"status": "success", "message": "SMS sent successfully"}
+
+
+@app.get("/sms/report", response_model=dict)
+def get_sms_report(db: Session = Depends(db_connection)):
+    """
+    Endpoint to fetch SMS data and generate a report.
+
+    Args:
+        db (Session): Database session.
+
+    Returns:
+        dict: SMS report.
+    """
+    data = crud.sms_report(db)
+    return {"status": "success", "data": data}

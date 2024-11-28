@@ -1,6 +1,7 @@
 from phonenumbers import parse, is_valid_number, NumberParseException
 from sqlalchemy.orm import Session
 from functools import lru_cache
+from datetime import datetime
 from sqlalchemy import text
 import africastalking
 import logging
@@ -85,14 +86,14 @@ def fetch_phone_numbers(db: Session, source: str) -> list[str]:
 
 def send_sms(db: Session, sms_data: schemas.SmsBase):
     """
-    Send SMS messages in batches to phone numbers fetched from the database.
+    Fetch and validate phone numbers from the specified database table.
 
     Args:
         db (Session): Database session.
-        sms_data (schemas.SmsBase): SMS content and source table.
+        source (str): Name of the table containing phone numbers.
 
     Returns:
-        None
+        list[str]: List of formatted and valid phone numbers.
     """
     phone_numbers = fetch_phone_numbers(db, sms_data.source)
 
@@ -103,10 +104,105 @@ def send_sms(db: Session, sms_data: schemas.SmsBase):
     message = f"{sms_data.sms_text}"
     batch_size = 100  # Send SMS in batches of 100
 
+    response_received_at = datetime.now().strftime("%Y%m%d%H%M%S")
+    response_received_at = datetime.now().strftime("%Y%m%d%H%M%S")
+    response_code = f"SMS-{response_received_at}"
+
     for i in range(0, len(phone_numbers), batch_size):
         batch = phone_numbers[i : i + batch_size]
+
         try:
-            response = sms.send(message, batch, sender)
-            logging.info("Batch sent successfully: %s", response)
+            response_dict = sms.send(message, batch, sender)
+            logging.info("Batch sent successfully: %s", response_dict)
+            serialized_response = str(response_dict)
+            insert_sms_query = text(
+                """
+                insert into test_sms (response_code, response_dict, response_received_at)
+                values (:response_code, :response_dict, :response_received_at)
+                on duplicate key update
+                    response_code=values(response_code),
+                    response_dict=values(response_dict),
+                    response_received_at=values(response_received_at);
+                """
+            )
+
+            db.execute(
+                insert_sms_query,
+                {
+                    "response_code": response_code,
+                    "response_dict": serialized_response,
+                    "response_received_at": response_received_at,
+                },
+            )
+            db.commit()
+
         except Exception as e:
             logging.error("Error sending SMS batch: %s", e)
+
+
+def sms_report(db: Session):
+    """
+    Fetch from database table.
+
+    Args:
+        db (Session): Database session.
+
+    Returns:
+        list[str]: List of sms report.
+    """
+    fetch_query = text(
+        """
+        select 
+            response_code,
+            response_dict,
+            response_received_at
+        from test_sms
+        order by response_received_at desc
+        """
+    )
+    result = db.execute(fetch_query).fetchall()
+    if not result:
+        logging.info("No SMS reports found.")
+        return []
+
+    sms_reports = []
+    for row in result:
+        response_code = row.response_code
+        response_received_at = row.response_received_at
+        response_dict = row.response_dict
+
+        # Deserialize the response_dict back into a Python dictionary
+        response_data = eval(response_dict)
+
+        # Extract SMS message data
+        message_data = response_data.get("SMSMessageData", {})
+        message = message_data.get("Message", "No message")
+        recipients = message_data.get("Recipients", [])
+
+        # Format recipients' statuses
+        recipient_details = []
+        total_cost = 0.0
+
+        for recipient in recipients:
+            cost = float(recipient.get("cost", "0"))
+            total_cost += cost
+            recipient_details.append(
+                {
+                    "number": recipient.get("number", "Unknown"),
+                    "status": recipient.get("status", "Unknown"),
+                    "statusCode": recipient.get("statusCode", "Unknown"),
+                    "cost": f"{cost:.2f}",
+                }
+            )
+
+        sms_reports.append(
+            {
+                "response_code": response_code,
+                "response_received_at": response_received_at,
+                "message": message,
+                "total_cost": f"{total_cost:.2f}",
+                "recipients": recipient_details,
+            }
+        )
+
+    return sms_reports
