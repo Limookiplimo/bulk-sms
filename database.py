@@ -16,16 +16,16 @@ def get_settings():
 # Load database settings
 settings = get_settings()
 encoded_username = quote_plus(
-    settings.cr_db_username
+    settings.db_username
 )  # Encode the username to handle special characters.
 encoded_password = quote_plus(
-    settings.cr_db_password
+    settings.db_password
 )  # Encode the password to handle special characters.
 
 # Construct the SQLAlchemy database URL for MySQL
 SQLALCHEMY_DATABASE_URL = (
     f"mysql+mysqlconnector://{encoded_username}:{encoded_password}"
-    f"@{settings.cr_db_host}:{settings.cr_db_port}/{settings.cr_db_name}"
+    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
 )
 
 # Create a database engine with connection pooling
